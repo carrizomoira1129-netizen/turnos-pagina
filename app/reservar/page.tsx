@@ -15,8 +15,10 @@ import {
   Phone,
   AlertCircle,
   LogIn,
+  Hash,
 } from "lucide-react";
 import Calendar from "@/components/Calendar";
+import StripeCheckout from "@/components/StripeCheckout";
 
 const TIME_SLOTS = [
   "10:00", "11:00", "12:00", "13:00",
@@ -24,87 +26,54 @@ const TIME_SLOTS = [
 ];
 
 interface Service {
-  id: string;
-  name: string;
-  description: string;
+  id:               string;
+  name:             string;
+  description:      string;
   duration_minutes: number;
-  price: number;
+  price:            number;
 }
 
-interface FormState {
-  name: string;
-  email: string;
-  phone: string;
-}
+interface FormState  { name: string; email: string; phone: string; }
+interface FormErrors { name?: string; email?: string; phone?: string; }
 
-interface FormErrors {
-  name?: string;
-  email?: string;
-  phone?: string;
-}
+type View = "form" | "payment" | "success";
 
-function formatPrice(price: number) {
-  return `$${price.toLocaleString("es-AR")}`;
-}
+function formatPrice(p: number) { return `$${p.toLocaleString("es-AR")}`; }
 
-function SectionHeader({
-  step,
-  label,
-  locked,
-}: {
-  step: number;
-  label: string;
-  locked: boolean;
-}) {
+function SectionHeader({ step, label, locked }: { step: number; label: string; locked: boolean }) {
   return (
     <div className="flex items-center gap-3 mb-5">
-      <div
-        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border transition-all flex-shrink-0 ${
-          locked
-            ? "border-white/10 text-white/20 bg-transparent"
-            : "border-[#e4c69a]/40 text-[#e4c69a] bg-[#e4c69a]/10"
-        }`}
-      >
-        {step}
-      </div>
-      <h2
-        className={`font-semibold text-base transition-all ${
-          locked ? "text-white/20" : "text-white"
-        }`}
-      >
-        {label}
-      </h2>
+      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border transition-all flex-shrink-0 ${
+        locked ? "border-white/10 text-white/20" : "border-[#e4c69a]/40 text-[#e4c69a] bg-[#e4c69a]/10"
+      }`}>{step}</div>
+      <h2 className={`font-semibold text-base transition-all ${locked ? "text-white/20" : "text-white"}`}>{label}</h2>
     </div>
   );
 }
 
 export default function ReservarPage() {
-  const [services, setServices] = useState<Service[]>([]);
+  const [view,           setView]           = useState<View>("form");
+  const [confirmCode,    setConfirmCode]    = useState("");
+
+  // Services
+  const [services,        setServices]        = useState<Service[]>([]);
   const [loadingServices, setLoadingServices] = useState(true);
-
   const [selectedService, setSelectedService] = useState<Service | null>(null);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownOpen,    setDropdownOpen]    = useState(false);
 
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  // Calendar
+  const [selectedDate,     setSelectedDate]     = useState<Date | null>(null);
   const [fullyBookedDates, setFullyBookedDates] = useState<string[]>([]);
-  const [bookedSlots, setBookedSlots] = useState<string[]>([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  const [bookedSlots,      setBookedSlots]      = useState<string[]>([]);
+  const [loadingSlots,     setLoadingSlots]     = useState(false);
+  const [selectedTime,     setSelectedTime]     = useState<string | null>(null);
 
-  const [form, setForm] = useState<FormState>({ name: "", email: "", phone: "" });
-  const [errors, setErrors] = useState<FormErrors>({});
+  // Client form
+  const [form,    setForm]    = useState<FormState>({ name: "", email: "", phone: "" });
+  const [errors,  setErrors]  = useState<FormErrors>({});
   const [touched, setTouched] = useState<Partial<Record<keyof FormState, boolean>>>({});
 
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const [success, setSuccess] = useState(false);
-  const [successData, setSuccessData] = useState<{
-    service: string;
-    date: string;
-    time: string;
-  } | null>(null);
-
-  // Load services
+  // ── Loaders ──────────────────────────────────────────────────────────────
   useEffect(() => {
     fetch("/api/services")
       .then((r) => r.json())
@@ -112,172 +81,147 @@ export default function ReservarPage() {
       .finally(() => setLoadingServices(false));
   }, []);
 
-  // Load fully booked dates for current/next month
   const fetchFullyBooked = useCallback(async (year: number, month: number) => {
     try {
-      const res = await fetch(
-        `/api/public/availability?year=${year}&month=${month}`
-      );
-      const data = await res.json();
+      const r = await fetch(`/api/public/availability?year=${year}&month=${month}`);
+      const d = await r.json();
       setFullyBookedDates((prev) => [
-        ...prev.filter((d) => !d.startsWith(`${year}-${String(month).padStart(2, "0")}`)),
-        ...(data.fullyBooked || []),
+        ...prev.filter((s) => !s.startsWith(`${year}-${String(month).padStart(2, "0")}`)),
+        ...(d.fullyBooked || []),
       ]);
     } catch {}
   }, []);
 
   useEffect(() => {
-    const now = new Date();
-    fetchFullyBooked(now.getFullYear(), now.getMonth() + 1);
+    const n = new Date();
+    fetchFullyBooked(n.getFullYear(), n.getMonth() + 1);
   }, [fetchFullyBooked]);
 
-  // Load booked slots when date is selected
   useEffect(() => {
     if (!selectedDate) return;
     setSelectedTime(null);
     setLoadingSlots(true);
-    const dateStr = format(selectedDate, "yyyy-MM-dd");
-    fetch(`/api/public/availability?date=${dateStr}`)
+    fetch(`/api/public/availability?date=${format(selectedDate, "yyyy-MM-dd")}`)
       .then((r) => r.json())
       .then((d) => setBookedSlots(d.booked || []))
       .catch(() => setBookedSlots([]))
       .finally(() => setLoadingSlots(false));
   }, [selectedDate]);
 
-  // Validation
-  const validate = (field: keyof FormState, value: string): string => {
+  // ── Validation ────────────────────────────────────────────────────────────
+  const validate = (field: keyof FormState, value: string) => {
     if (!value.trim()) return "Este campo es obligatorio";
-    if (field === "email") {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return "Email inválido";
-    }
-    if (field === "phone") {
-      if (!/^\+?[\d\s\-()]{7,}$/.test(value)) return "Solo números, espacios y guiones";
-    }
+    if (field === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return "Email inválido";
+    if (field === "phone" && !/^\+?[\d\s\-()]{7,}$/.test(value)) return "Solo números, espacios y guiones";
     return "";
   };
 
   const handleFieldChange = (field: keyof FormState, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-    if (touched[field]) {
-      setErrors((prev) => ({ ...prev, [field]: validate(field, value) }));
-    }
+    setForm((p) => ({ ...p, [field]: value }));
+    if (touched[field]) setErrors((p) => ({ ...p, [field]: validate(field, value) }));
   };
 
   const handleBlur = (field: keyof FormState) => {
-    setTouched((prev) => ({ ...prev, [field]: true }));
-    setErrors((prev) => ({ ...prev, [field]: validate(field, form[field]) }));
+    setTouched((p) => ({ ...p, [field]: true }));
+    setErrors((p) => ({ ...p, [field]: validate(field, form[field]) }));
   };
 
   const allFieldsValid =
-    form.name.trim() &&
-    form.email.trim() &&
-    form.phone.trim() &&
-    !validate("name", form.name) &&
-    !validate("email", form.email) &&
-    !validate("phone", form.phone);
+    form.name.trim() && form.email.trim() && form.phone.trim() &&
+    !validate("name", form.name) && !validate("email", form.email) && !validate("phone", form.phone);
 
-  const canSubmit =
-    selectedService && selectedDate && selectedTime && allFieldsValid;
+  const canProceedToPayment = !!(selectedService && selectedDate && selectedTime && allFieldsValid);
 
-  const handleSubmit = async () => {
-    if (!canSubmit) return;
-    setSubmitting(true);
-    setSubmitError("");
-
-    try {
-      const res = await fetch("/api/public/appointments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          serviceId:  selectedService!.id,
-          date:       format(selectedDate!, "yyyy-MM-dd"),
-          time:       selectedTime,
-          guestName:  form.name.trim(),
-          guestEmail: form.email.trim(),
-          guestPhone: form.phone.trim(),
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error al reservar");
-
-      setSuccessData({
-        service: selectedService!.name,
-        date: format(selectedDate!, "EEEE d 'de' MMMM, yyyy", { locale: es }),
-        time: selectedTime!,
-      });
-      setSuccess(true);
-    } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Error al confirmar el turno");
-    } finally {
-      setSubmitting(false);
-    }
+  const handleGoToPayment = () => {
+    // Touch all fields to show validation errors if any
+    setTouched({ name: true, email: true, phone: true });
+    setErrors({
+      name:  validate("name",  form.name),
+      email: validate("email", form.email),
+      phone: validate("phone", form.phone),
+    });
+    if (canProceedToPayment) setView("payment");
   };
 
-  // ─── Success screen ───────────────────────────────────────────────────────
-  if (success && successData) {
+  // ─────────────────────────────────────────────────────────────────────────
+  // SUCCESS VIEW
+  // ─────────────────────────────────────────────────────────────────────────
+  if (view === "success") {
     return (
       <div className="min-h-screen bg-[#0D0D0D] flex items-center justify-center p-4">
         <div className="w-full max-w-md text-center">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-[#e4c69a]/10 border border-[#e4c69a]/30 mb-6">
             <CheckCircle2 className="w-10 h-10 text-[#e4c69a]" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">¡Turno confirmado!</h1>
-          <p className="text-white/40 mb-8">
-            Te esperamos. Recibirás un recordatorio por email.
-          </p>
+          <h1 className="text-3xl font-bold text-white mb-2">¡Pago confirmado!</h1>
+          <p className="text-white/40 mb-2">Tu turno fue reservado y el pago fue procesado.</p>
+          {confirmCode && (
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#e4c69a]/10 border border-[#e4c69a]/20 mb-6">
+              <Hash className="w-4 h-4 text-[#e4c69a]" />
+              <span className="text-[#e4c69a] font-mono font-bold tracking-widest text-sm">
+                {confirmCode}
+              </span>
+              <span className="text-white/30 text-xs">N° de confirmación</span>
+            </div>
+          )}
 
           <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 text-left space-y-4 mb-8">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-[#e4c69a]/10 flex items-center justify-center flex-shrink-0">
-                <CalendarDays className="w-4 h-4 text-[#e4c69a]" />
+            {selectedService && (
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-[#e4c69a]/10 flex items-center justify-center flex-shrink-0">
+                  <CalendarDays className="w-4 h-4 text-[#e4c69a]" />
+                </div>
+                <div>
+                  <p className="text-white/40 text-xs">Servicio</p>
+                  <p className="text-white font-semibold">{selectedService.name}</p>
+                  <p className="text-[#e4c69a] text-xs font-bold">{formatPrice(selectedService.price)}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-white/40 text-xs">Servicio</p>
-                <p className="text-white font-semibold">{successData.service}</p>
+            )}
+            <div className="h-px bg-white/5" />
+            {selectedDate && selectedTime && (
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-[#e4c69a]/10 flex items-center justify-center flex-shrink-0">
+                  <Clock className="w-4 h-4 text-[#e4c69a]" />
+                </div>
+                <div>
+                  <p className="text-white/40 text-xs">Fecha y hora</p>
+                  <p className="text-white font-semibold capitalize">
+                    {format(selectedDate, "EEEE d 'de' MMMM, yyyy", { locale: es })}
+                  </p>
+                  <p className="text-[#e4c69a] text-xs font-bold">{selectedTime} hs</p>
+                </div>
               </div>
-            </div>
+            )}
             <div className="h-px bg-white/5" />
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 rounded-lg bg-[#e4c69a]/10 flex items-center justify-center flex-shrink-0">
-                <CalendarDays className="w-4 h-4 text-[#e4c69a]" />
+                <User className="w-4 h-4 text-[#e4c69a]" />
               </div>
               <div>
-                <p className="text-white/40 text-xs">Fecha</p>
-                <p className="text-white font-semibold capitalize">{successData.date}</p>
-              </div>
-            </div>
-            <div className="h-px bg-white/5" />
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-[#e4c69a]/10 flex items-center justify-center flex-shrink-0">
-                <Clock className="w-4 h-4 text-[#e4c69a]" />
-              </div>
-              <div>
-                <p className="text-white/40 text-xs">Hora</p>
-                <p className="text-white font-semibold">{successData.time} hs</p>
+                <p className="text-white/40 text-xs">Datos del cliente</p>
+                <p className="text-white font-semibold">{form.name}</p>
+                <p className="text-white/40 text-xs">{form.email}</p>
               </div>
             </div>
           </div>
 
           <button
             onClick={() => {
-              setSuccess(false);
-              setSuccessData(null);
+              setView("form");
               setSelectedService(null);
               setSelectedDate(null);
               setSelectedTime(null);
               setForm({ name: "", email: "", phone: "" });
               setTouched({});
               setErrors({});
+              setConfirmCode("");
             }}
             className="w-full py-3 rounded-xl border border-white/10 text-white/50 hover:text-white hover:border-white/20 text-sm font-medium transition-all mb-3"
           >
             Reservar otro turno
           </button>
-          <Link
-            href="/login"
-            className="block text-center text-sm text-[#e4c69a]/60 hover:text-[#e4c69a] transition-colors"
-          >
+          <Link href="/login" className="block text-center text-sm text-[#e4c69a]/60 hover:text-[#e4c69a] transition-colors">
             ¿Tenés cuenta? Iniciá sesión para ver tus turnos
           </Link>
         </div>
@@ -285,7 +229,50 @@ export default function ReservarPage() {
     );
   }
 
-  // ─── Main page ────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // PAYMENT VIEW
+  // ─────────────────────────────────────────────────────────────────────────
+  if (view === "payment" && selectedService && selectedDate && selectedTime) {
+    return (
+      <div className="min-h-screen bg-[#0D0D0D]">
+        <header className="border-b border-white/5 sticky top-0 z-10 bg-[#0D0D0D]/90 backdrop-blur-sm">
+          <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#e4c69a]/10 border border-[#e4c69a]/30 flex items-center justify-center">
+              <CalendarDays className="w-5 h-5 text-[#e4c69a]" />
+            </div>
+            <div>
+              <span className="text-white font-bold text-lg leading-none block">TurnosPro</span>
+              <span className="text-white/30 text-xs">Paso final — Pago</span>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-4xl mx-auto px-4 py-8 pb-16">
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-white">Confirmá y pagá</h1>
+            <p className="text-white/40 text-sm mt-1">
+              Revisá los datos de tu turno y completá el pago para confirmar la reserva.
+            </p>
+          </div>
+
+          <StripeCheckout
+            service={selectedService}
+            date={selectedDate}
+            time={selectedTime}
+            guestName={form.name}
+            guestEmail={form.email}
+            guestPhone={form.phone}
+            onSuccess={(code) => { setConfirmCode(code); setView("success"); }}
+            onBack={() => setView("form")}
+          />
+        </main>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FORM VIEW (steps 1–4)
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#0D0D0D]">
       {/* Header */}
@@ -302,7 +289,7 @@ export default function ReservarPage() {
           </div>
           <Link
             href="/login"
-            className="flex items-center gap-2 text-sm text-white/40 hover:text-[#e4c69a] transition-colors border border-white/10 hover:border-[#e4c69a]/30 px-3 py-1.5 rounded-lg"
+            className="flex items-center gap-2 text-sm text-white/40 hover:text-[#e4c69a] border border-white/10 hover:border-[#e4c69a]/30 px-3 py-1.5 rounded-lg transition-all"
           >
             <LogIn className="w-3.5 h-3.5" />
             Iniciar sesión
@@ -311,17 +298,12 @@ export default function ReservarPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6 pb-16">
-        {/* Hero */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">
-            Reservá tu turno
-          </h1>
-          <p className="text-white/40">
-            Sin necesidad de crear una cuenta. Completá los pasos a continuación.
-          </p>
+          <h1 className="text-3xl font-bold text-white mb-2">Reservá tu turno</h1>
+          <p className="text-white/40">Sin necesidad de crear una cuenta. Completá los pasos a continuación.</p>
         </div>
 
-        {/* ── STEP 1: Service ── */}
+        {/* ── Step 1: Service ── */}
         <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-6">
           <SectionHeader step={1} label="Elegí el servicio" locked={false} />
 
@@ -334,9 +316,7 @@ export default function ReservarPage() {
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border text-left transition-all ${
-                  selectedService
-                    ? "border-[#e4c69a]/40 bg-[#e4c69a]/5"
-                    : "border-white/10 bg-white/[0.02] hover:border-white/20"
+                  selectedService ? "border-[#e4c69a]/40 bg-[#e4c69a]/5" : "border-white/10 bg-white/[0.02] hover:border-white/20"
                 }`}
               >
                 {selectedService ? (
@@ -345,21 +325,13 @@ export default function ReservarPage() {
                     <p className="text-white/40 text-xs mt-0.5 flex items-center gap-2">
                       <Clock className="w-3 h-3" />
                       {selectedService.duration_minutes} min
-                      <span className="text-[#e4c69a] font-semibold">
-                        {formatPrice(selectedService.price)}
-                      </span>
+                      <span className="text-[#e4c69a] font-semibold">{formatPrice(selectedService.price)}</span>
                     </p>
                   </div>
                 ) : (
-                  <span className="text-white/30 text-sm">
-                    Seleccioná un servicio...
-                  </span>
+                  <span className="text-white/30 text-sm">Seleccioná un servicio...</span>
                 )}
-                <ChevronDown
-                  className={`w-4 h-4 text-white/30 flex-shrink-0 ml-3 transition-transform ${
-                    dropdownOpen ? "rotate-180" : ""
-                  }`}
-                />
+                <ChevronDown className={`w-4 h-4 text-white/30 flex-shrink-0 ml-3 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
               </button>
 
               {dropdownOpen && (
@@ -367,25 +339,15 @@ export default function ReservarPage() {
                   {services.map((service) => (
                     <button
                       key={service.id}
-                      onClick={() => {
-                        setSelectedService(service);
-                        setDropdownOpen(false);
-                        setSelectedDate(null);
-                        setSelectedTime(null);
-                      }}
-                      className={`w-full flex items-start justify-between px-4 py-3.5 text-left hover:bg-white/5 transition-all border-b border-white/5 last:border-0 ${
-                        selectedService?.id === service.id ? "bg-[#e4c69a]/5" : ""
-                      }`}
+                      onClick={() => { setSelectedService(service); setDropdownOpen(false); setSelectedDate(null); setSelectedTime(null); }}
+                      className={`w-full flex items-start justify-between px-4 py-3.5 text-left hover:bg-white/5 transition-all border-b border-white/5 last:border-0 ${selectedService?.id === service.id ? "bg-[#e4c69a]/5" : ""}`}
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-white text-sm font-medium">{service.name}</p>
                         <p className="text-white/40 text-xs mt-0.5">{service.description}</p>
-                        <div className="flex items-center gap-2 mt-1.5">
-                          <span className="flex items-center gap-1 text-xs text-white/30">
-                            <Clock className="w-3 h-3" />
-                            {service.duration_minutes} min
-                          </span>
-                        </div>
+                        <span className="flex items-center gap-1 text-xs text-white/30 mt-1.5">
+                          <Clock className="w-3 h-3" />{service.duration_minutes} min
+                        </span>
                       </div>
                       <span className="text-[#e4c69a] font-bold text-sm ml-4 flex-shrink-0 mt-0.5">
                         {formatPrice(service.price)}
@@ -398,12 +360,8 @@ export default function ReservarPage() {
           )}
         </section>
 
-        {/* ── STEP 2: Date & Time ── */}
-        <section
-          className={`bg-white/[0.03] border border-white/10 rounded-2xl p-6 transition-all ${
-            !selectedService ? "opacity-40 pointer-events-none" : ""
-          }`}
-        >
+        {/* ── Step 2: Date & Time ── */}
+        <section className={`bg-white/[0.03] border border-white/10 rounded-2xl p-6 transition-all ${!selectedService ? "opacity-40 pointer-events-none" : ""}`}>
           <SectionHeader step={2} label="Elegí la fecha y el horario" locked={!selectedService} />
 
           <Calendar
@@ -414,36 +372,30 @@ export default function ReservarPage() {
             showLegend={false}
           />
 
-          {/* Time slots */}
           {selectedDate && (
             <div className="mt-5 pt-5 border-t border-white/5">
               <p className="text-white/50 text-xs font-medium mb-3 capitalize">
-                Horarios disponibles —{" "}
-                {format(selectedDate, "EEEE d 'de' MMMM", { locale: es })}
+                Horarios disponibles — {format(selectedDate, "EEEE d 'de' MMMM", { locale: es })}
               </p>
-
               {loadingSlots ? (
                 <div className="flex items-center gap-2 text-white/30 text-sm">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Verificando disponibilidad...
+                  <Loader2 className="w-4 h-4 animate-spin" /> Verificando disponibilidad...
                 </div>
               ) : (
                 <>
                   <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
                     {TIME_SLOTS.map((slot) => {
-                      const isBooked = bookedSlots.includes(slot);
-                      const isSelected = selectedTime === slot;
+                      const booked   = bookedSlots.includes(slot);
+                      const selected = selectedTime === slot;
                       return (
                         <button
                           key={slot}
-                          onClick={() => !isBooked && setSelectedTime(slot)}
-                          disabled={isBooked}
+                          onClick={() => !booked && setSelectedTime(slot)}
+                          disabled={booked}
                           className={`py-2.5 rounded-xl text-sm font-medium border transition-all ${
-                            isSelected
-                              ? "bg-[#e4c69a] text-[#0D0D0D] border-[#e4c69a] shadow-lg shadow-[#e4c69a]/20"
-                              : isBooked
-                              ? "bg-transparent border-white/5 text-white/15 cursor-not-allowed line-through"
-                              : "bg-white/[0.03] border-white/10 text-white hover:border-[#e4c69a]/40 hover:text-[#e4c69a] hover:bg-[#e4c69a]/5"
+                            selected ? "bg-[#e4c69a] text-[#0D0D0D] border-[#e4c69a] shadow-lg shadow-[#e4c69a]/20"
+                            : booked  ? "bg-transparent border-white/5 text-white/15 cursor-not-allowed line-through"
+                            : "bg-white/[0.03] border-white/10 text-white hover:border-[#e4c69a]/40 hover:text-[#e4c69a] hover:bg-[#e4c69a]/5"
                           }`}
                         >
                           {slot}
@@ -463,101 +415,50 @@ export default function ReservarPage() {
           )}
         </section>
 
-        {/* ── STEP 3: Form ── */}
-        <section
-          className={`bg-white/[0.03] border border-white/10 rounded-2xl p-6 transition-all ${
-            !selectedTime ? "opacity-40 pointer-events-none" : ""
-          }`}
-        >
+        {/* ── Step 3: Client form ── */}
+        <section className={`bg-white/[0.03] border border-white/10 rounded-2xl p-6 transition-all ${!selectedTime ? "opacity-40 pointer-events-none" : ""}`}>
           <SectionHeader step={3} label="Tus datos" locked={!selectedTime} />
 
           <div className="space-y-4">
-            {/* Name */}
-            <div>
-              <label className="block text-sm text-white/50 mb-1.5">
-                Nombre completo <span className="text-[#e4c69a]">*</span>
-              </label>
-              <div className="relative">
-                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => handleFieldChange("name", e.target.value)}
-                  onBlur={() => handleBlur("name")}
-                  placeholder="Juan Pérez"
-                  className={`w-full bg-white/5 border rounded-xl pl-10 pr-4 py-3 text-white placeholder:text-white/20 focus:outline-none focus:ring-1 transition-all ${
-                    errors.name && touched.name
-                      ? "border-red-500/40 focus:border-red-500/60 focus:ring-red-500/10"
-                      : "border-white/10 focus:border-[#e4c69a]/50 focus:ring-[#e4c69a]/10"
-                  }`}
-                />
-              </div>
-              {errors.name && touched.name && (
-                <p className="flex items-center gap-1 text-red-400 text-xs mt-1.5">
-                  <AlertCircle className="w-3 h-3" /> {errors.name}
-                </p>
-              )}
-            </div>
-
-            {/* Email */}
-            <div>
-              <label className="block text-sm text-white/50 mb-1.5">
-                Email <span className="text-[#e4c69a]">*</span>
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => handleFieldChange("email", e.target.value)}
-                  onBlur={() => handleBlur("email")}
-                  placeholder="tu@email.com"
-                  className={`w-full bg-white/5 border rounded-xl pl-10 pr-4 py-3 text-white placeholder:text-white/20 focus:outline-none focus:ring-1 transition-all ${
-                    errors.email && touched.email
-                      ? "border-red-500/40 focus:border-red-500/60 focus:ring-red-500/10"
-                      : "border-white/10 focus:border-[#e4c69a]/50 focus:ring-[#e4c69a]/10"
-                  }`}
-                />
-              </div>
-              {errors.email && touched.email && (
-                <p className="flex items-center gap-1 text-red-400 text-xs mt-1.5">
-                  <AlertCircle className="w-3 h-3" /> {errors.email}
-                </p>
-              )}
-            </div>
-
-            {/* Phone */}
-            <div>
-              <label className="block text-sm text-white/50 mb-1.5">
-                Teléfono <span className="text-[#e4c69a]">*</span>
-              </label>
-              <div className="relative">
-                <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                <input
-                  type="tel"
-                  value={form.phone}
-                  onChange={(e) => handleFieldChange("phone", e.target.value)}
-                  onBlur={() => handleBlur("phone")}
-                  placeholder="+54 11 1234-5678"
-                  className={`w-full bg-white/5 border rounded-xl pl-10 pr-4 py-3 text-white placeholder:text-white/20 focus:outline-none focus:ring-1 transition-all ${
-                    errors.phone && touched.phone
-                      ? "border-red-500/40 focus:border-red-500/60 focus:ring-red-500/10"
-                      : "border-white/10 focus:border-[#e4c69a]/50 focus:ring-[#e4c69a]/10"
-                  }`}
-                />
-              </div>
-              {errors.phone && touched.phone && (
-                <p className="flex items-center gap-1 text-red-400 text-xs mt-1.5">
-                  <AlertCircle className="w-3 h-3" /> {errors.phone}
-                </p>
-              )}
-            </div>
+            {(["name", "email", "phone"] as const).map((field) => {
+              const config = {
+                name:  { label: "Nombre completo", placeholder: "Juan Pérez",          type: "text",  Icon: User  },
+                email: { label: "Email",            placeholder: "tu@email.com",        type: "email", Icon: Mail  },
+                phone: { label: "Teléfono",         placeholder: "+54 11 1234-5678",    type: "tel",   Icon: Phone },
+              }[field];
+              return (
+                <div key={field}>
+                  <label className="block text-sm text-white/50 mb-1.5">
+                    {config.label} <span className="text-[#e4c69a]">*</span>
+                  </label>
+                  <div className="relative">
+                    <config.Icon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                    <input
+                      type={config.type}
+                      value={form[field]}
+                      onChange={(e) => handleFieldChange(field, e.target.value)}
+                      onBlur={() => handleBlur(field)}
+                      placeholder={config.placeholder}
+                      className={`w-full bg-white/5 border rounded-xl pl-10 pr-4 py-3 text-white placeholder:text-white/20 text-sm focus:outline-none focus:ring-1 transition-all ${
+                        errors[field] && touched[field]
+                          ? "border-red-500/40 focus:border-red-500/60 focus:ring-red-500/10"
+                          : "border-white/10 focus:border-[#e4c69a]/50 focus:ring-[#e4c69a]/10"
+                      }`}
+                    />
+                  </div>
+                  {errors[field] && touched[field] && (
+                    <p className="flex items-center gap-1 text-red-400 text-xs mt-1.5">
+                      <AlertCircle className="w-3 h-3" /> {errors[field]}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
 
-        {/* ── STEP 4: Summary + Confirm ── */}
+        {/* ── Step 4: Go to payment ── */}
         <section>
-          {/* Summary pill (shows when service + date + time are selected) */}
           {selectedService && selectedDate && selectedTime && (
             <div className="bg-white/[0.03] border border-[#e4c69a]/15 rounded-2xl p-4 mb-4 flex flex-wrap gap-4 text-sm">
               <div className="flex items-center gap-2 text-white/60">
@@ -567,9 +468,7 @@ export default function ReservarPage() {
               </div>
               <div className="flex items-center gap-2 text-white/60">
                 <CalendarDays className="w-3.5 h-3.5 text-[#e4c69a]" />
-                <span className="capitalize">
-                  {format(selectedDate, "d 'de' MMMM", { locale: es })}
-                </span>
+                <span className="capitalize">{format(selectedDate, "d 'de' MMMM", { locale: es })}</span>
               </div>
               <div className="flex items-center gap-2 text-white/60">
                 <Clock className="w-3.5 h-3.5 text-[#e4c69a]" />
@@ -578,48 +477,27 @@ export default function ReservarPage() {
             </div>
           )}
 
-          {submitError && (
-            <div className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              {submitError}
-            </div>
-          )}
-
           <button
-            onClick={handleSubmit}
-            disabled={!canSubmit || submitting}
-            className={`w-full py-4 rounded-2xl font-bold text-base transition-all flex items-center justify-center gap-2 ${
-              canSubmit && !submitting
+            onClick={handleGoToPayment}
+            disabled={!canProceedToPayment}
+            className={`w-full py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all ${
+              canProceedToPayment
                 ? "bg-gradient-to-r from-[#e4c69a] to-[#c9a96e] text-[#0D0D0D] hover:shadow-lg hover:shadow-[#e4c69a]/20 hover:scale-[1.01] active:scale-[0.99]"
                 : "bg-white/5 border border-white/10 text-white/20 cursor-not-allowed"
             }`}
           >
-            {submitting ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Confirmando turno...
-              </>
-            ) : (
-              <>
-                <CalendarDays className="w-5 h-5" />
-                Confirmar Turno
-              </>
-            )}
+            <CalendarDays className="w-5 h-5" />
+            {selectedService ? `Continuar al pago · ${formatPrice(selectedService.price)}` : "Continuar al pago"}
           </button>
 
-          {!canSubmit && !submitting && (
-            <p className="text-center text-white/20 text-xs mt-3">
-              Completá todos los pasos para habilitar el botón
-            </p>
+          {!canProceedToPayment && (
+            <p className="text-center text-white/20 text-xs mt-3">Completá todos los pasos para continuar</p>
           )}
         </section>
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-white/5 py-6 text-center">
-        <p className="text-white/20 text-xs">
-          © {new Date().getFullYear()} TurnosPro · Sistema de reservas online
-        </p>
+        <p className="text-white/20 text-xs">© {new Date().getFullYear()} TurnosPro · Sistema de reservas online</p>
       </footer>
     </div>
   );

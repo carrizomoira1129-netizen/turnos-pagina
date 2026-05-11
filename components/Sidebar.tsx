@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   CalendarDays,
   ClipboardList,
+  CreditCard,
   LogOut,
   Menu,
   X,
@@ -19,8 +20,9 @@ interface SidebarProps {
 }
 
 const navItems = [
-  { href: "/dashboard", label: "Reservar Turno", icon: CalendarDays },
-  { href: "/mis-turnos", label: "Mis Turnos", icon: ClipboardList },
+  { href: "/dashboard",  label: "Reservar Turno", icon: CalendarDays  },
+  { href: "/mis-turnos", label: "Mis Turnos",      icon: ClipboardList },
+  { href: "/pagos",      label: "Pagos",           icon: CreditCard    },
 ];
 
 export default function Sidebar({ user, profile }: SidebarProps) {
