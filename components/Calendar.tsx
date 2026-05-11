@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import {
   format,
   startOfMonth,
@@ -21,6 +21,8 @@ interface CalendarProps {
   onSelectDate: (date: Date) => void;
   selectedDate: Date | null;
   bookedDates: string[];
+  disabledDates?: string[];
+  showLegend?: boolean;
 }
 
 const WORKING_DAYS = [1, 2, 3, 4, 5, 6]; // Mon-Sat
@@ -29,6 +31,8 @@ export default function Calendar({
   onSelectDate,
   selectedDate,
   bookedDates,
+  disabledDates = [],
+  showLegend = true,
 }: CalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
@@ -46,8 +50,11 @@ export default function Calendar({
   const isWorkingDay = (date: Date) => WORKING_DAYS.includes(getDay(date));
   const isPast = (date: Date) => isBefore(date, today);
 
+  const isFullyBooked = (date: Date) =>
+    disabledDates.includes(format(date, "yyyy-MM-dd"));
+
   const isSelectable = (date: Date) =>
-    isWorkingDay(date) && !isPast(date);
+    isWorkingDay(date) && !isPast(date) && !isFullyBooked(date);
 
   const hasBookings = (date: Date) => {
     const dateStr = format(date, "yyyy-MM-dd");
@@ -108,6 +115,7 @@ export default function Calendar({
           const hasAppts = hasBookings(date);
           const past = isPast(date);
           const nonWorking = !isWorkingDay(date);
+          const fullyBooked = isFullyBooked(date);
 
           return (
             <button
@@ -122,6 +130,8 @@ export default function Calendar({
                   ? "bg-white/10 text-white border border-[#e4c69a]/40 hover:bg-[#e4c69a]/10"
                   : selectable
                   ? "text-white hover:bg-white/5 hover:text-[#e4c69a]"
+                  : fullyBooked
+                  ? "text-white/20 cursor-not-allowed line-through"
                   : past || nonWorking
                   ? "text-white/15 cursor-not-allowed"
                   : "text-white/30 cursor-not-allowed"
@@ -138,16 +148,18 @@ export default function Calendar({
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 mt-5 pt-4 border-t border-white/5">
-        <div className="flex items-center gap-1.5 text-xs text-white/30">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#e4c69a]" />
-          Con turnos reservados
+      {showLegend && (
+        <div className="flex items-center gap-4 mt-5 pt-4 border-t border-white/5">
+          <div className="flex items-center gap-1.5 text-xs text-white/30">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#e4c69a]" />
+            Con turnos reservados
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-white/30">
+            <span className="w-2.5 h-2.5 rounded-full bg-white/15" />
+            No disponible
+          </div>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-white/30">
-          <span className="w-2.5 h-2.5 rounded-full bg-white/15" />
-          No disponible
-        </div>
-      </div>
+      )}
     </div>
   );
 }
