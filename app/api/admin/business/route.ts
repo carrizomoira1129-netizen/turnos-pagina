@@ -8,38 +8,28 @@ export async function GET() {
 
   const db = createAdminClient();
   const { data, error } = await db
-    .from("services")
-    .select("*")
-    .eq("business_id", ctx.businessId)
-    .order("price", { ascending: true });
+    .from("businesses").select("*").eq("id", ctx.businessId).single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ services: data });
+  return NextResponse.json({ business: data });
 }
 
-export async function POST(request: Request) {
+export async function PATCH(request: Request) {
   const ctx = await getBusinessContext();
   if (!ctx?.businessId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
-  const { name, description, duration_minutes, price } = body;
-
-  if (!name || !duration_minutes || price === undefined) {
-    return NextResponse.json({ error: "Faltan datos requeridos" }, { status: 400 });
-  }
+  const allowed = [
+    "name","niche","phone","address","description",
+    "logo_url","primary_color","secondary_color","social_links",
+  ];
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  for (const k of allowed) if (k in body) patch[k] = body[k];
 
   const db = createAdminClient();
   const { data, error } = await db
-    .from("services")
-    .insert({
-      business_id: ctx.businessId,
-      name, description,
-      duration_minutes: +duration_minutes, price: +price,
-      is_active: true,
-    })
-    .select()
-    .single();
+    .from("businesses").update(patch).eq("id", ctx.businessId).select().single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ service: data }, { status: 201 });
+  return NextResponse.json({ business: data });
 }

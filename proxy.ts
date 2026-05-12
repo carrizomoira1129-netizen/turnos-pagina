@@ -30,22 +30,26 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
+
   const isAuthRoute =
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
+    pathname.startsWith("/registro-negocio") ||
     pathname.startsWith("/reset-password") ||
     pathname.startsWith("/auth/callback");
 
   const isPublicRoute =
     pathname.startsWith("/reservar") ||
-    pathname.startsWith("/api/public");
+    pathname.startsWith("/negocio/") ||
+    pathname.startsWith("/api/public") ||
+    pathname.startsWith("/api/business/register");
 
   if (!user && !isAuthRoute && !isPublicRoute) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  if (user && isAuthRoute) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+  if (user && (pathname === "/login" || pathname === "/register" || pathname === "/registro-negocio")) {
+    return NextResponse.redirect(new URL("/admin", request.url));
   }
 
   return supabaseResponse;

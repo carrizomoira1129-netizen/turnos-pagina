@@ -1,5 +1,4 @@
 import Stripe from "stripe";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notifyAppointment } from "@/lib/notifications";
 import { NextResponse } from "next/server";
@@ -10,6 +9,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 export async function POST(request: Request) {
   const {
+    slug,
     paymentIntentId,
     serviceId,
     professionalId,
@@ -21,8 +21,20 @@ export async function POST(request: Request) {
     amount,
   } = await request.json();
 
-  if (!paymentIntentId || !serviceId || !professionalId || !date || !time) {
+  if (!slug || !paymentIntentId || !serviceId || !professionalId || !date || !time) {
     return NextResponse.json({ error: "Faltan datos requeridos" }, { status: 400 });
+  }
+
+  const db = createAdminClient();
+
+  // Resolve business by slug
+  const { data: biz } = await db
+    .from("businesses")
+    .select("id, name, plan, plan_status")
+    .eq("slug", slug)
+    .single();
+  if (!biz || biz.plan_status !== "active") {
+    return NextResponse.json({ error: "Negocio no disponible" }, { status: 404 });
   }
 
   // Verify payment with Stripe before creating the appointment
@@ -40,9 +52,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = await createClient();
-
-  const { data, error } = await supabase.rpc("create_guest_appointment", {
+  const { data, error } = await db.rpc("create_guest_appointment", {
+    p_business_id:       biz.id,
     p_service_id:        serviceId,
     p_professional_id:   professionalId,
     p_date:              date,
@@ -55,29 +66,25 @@ export async function POST(request: Request) {
   });
 
   if (error) {
-    // If booking failed after payment, attempt to cancel the PaymentIntent
-    try {
-      await stripe.paymentIntents.cancel(paymentIntentId);
-    } catch {}
+    try { await stripe.paymentIntents.cancel(paymentIntentId); } catch {}
     const status = error.message.includes("ya está reservado") ? 409 : 500;
     return NextResponse.json({ error: error.message }, { status });
   }
 
   const appointmentId = data as string;
 
-  // Fire WhatsApp confirmation (best-effort, non-blocking on errors)
+  // Fire confirmation (best-effort)
   try {
-    const admin = createAdminClient();
-    const [{ data: settings }, { data: svc }, { data: pro }, { data: biz }] = await Promise.all([
-      admin.from("notification_settings").select("confirmation_enabled").eq("id", 1).single(),
-      admin.from("services").select("name").eq("id", serviceId).single(),
-      admin.from("professionals").select("name").eq("id", professionalId).single(),
-      admin.from("business_config").select("name").limit(1).single(),
+    const [{ data: settings }, { data: svc }, { data: pro }] = await Promise.all([
+      db.from("notification_settings").select("confirmation_enabled").eq("business_id", biz.id).maybeSingle(),
+      db.from("services").select("name").eq("id", serviceId).single(),
+      db.from("professionals").select("name").eq("id", professionalId).single(),
     ]);
 
-    if (settings?.confirmation_enabled !== false) {
+    if (settings?.confirmation_enabled !== false && biz.plan !== "basic") {
       const result = await notifyAppointment({
         appointmentId,
+        businessId: biz.id,
         type: "confirmation",
         phone: guestPhone ?? null,
         email: guestEmail ?? null,
@@ -87,11 +94,11 @@ export async function POST(request: Request) {
           time: String(time).slice(0, 5),
           professional: pro?.name ?? "tu profesional",
           service: svc?.name ?? "Tu servicio",
-          businessName: biz?.name,
+          businessName: biz.name,
         },
       });
       if (result.sent) {
-        await admin.from("appointments")
+        await db.from("appointments")
           .update({ confirmation_sent: true })
           .eq("id", appointmentId);
       }
@@ -100,7 +107,6 @@ export async function POST(request: Request) {
     console.error("[confirm-booking] notification error:", e);
   }
 
-  // Return short confirmation code (first 8 chars of UUID)
   const confirmationCode = appointmentId.split("-")[0].toUpperCase();
   return NextResponse.json({ id: appointmentId, confirmationCode }, { status: 201 });
 }

@@ -59,6 +59,7 @@ export function renderMessage(type: NotifType, ctx: ApptContext): string {
 // ─── Logging ─────────────────────────────────────────────────────────────────
 async function logNotification(entry: {
   appointment_id: string;
+  business_id?: string;
   type: NotifType;
   channel: "whatsapp" | "email";
   status: "sent" | "failed";
@@ -99,12 +100,13 @@ async function sendEmail(toEmail: string, subject: string, body: string) {
 // ─── Public API: send with email fallback + logging ─────────────────────────
 export async function notifyAppointment(opts: {
   appointmentId: string;
+  businessId?: string;
   type: NotifType;
   phone: string | null;
   email: string | null;
   ctx: ApptContext;
 }) {
-  const { appointmentId, type, phone, email, ctx } = opts;
+  const { appointmentId, businessId, type, phone, email, ctx } = opts;
   const message = renderMessage(type, ctx);
   const subject =
     type === "confirmation" ? "Turno confirmado"
@@ -117,38 +119,44 @@ export async function notifyAppointment(opts: {
     try {
       const sid = await sendWhatsApp(e164, message);
       await logNotification({
-        appointment_id: appointmentId, type, channel: "whatsapp",
+        appointment_id: appointmentId, business_id: businessId, type, channel: "whatsapp",
         status: "sent", recipient: e164, message, provider_id: sid,
       });
       return { sent: true, channel: "whatsapp" as const };
     } catch (e) {
       const err = e instanceof Error ? e.message : "WhatsApp failed";
       await logNotification({
-        appointment_id: appointmentId, type, channel: "whatsapp",
+        appointment_id: appointmentId, business_id: businessId, type, channel: "whatsapp",
         status: "failed", recipient: e164, message, error: err,
       });
       // fall through to email
     }
   }
 
-  // Email fallback
+  // Email fallback — read setting scoped to this business
   const db = createAdminClient();
-  const { data: settings } = await db
-    .from("notification_settings").select("email_backup_enabled").eq("id", 1).single();
-  const emailEnabled = settings?.email_backup_enabled ?? true;
+  let emailEnabled = true;
+  if (businessId) {
+    const { data: settings } = await db
+      .from("notification_settings")
+      .select("email_backup_enabled")
+      .eq("business_id", businessId)
+      .maybeSingle();
+    emailEnabled = settings?.email_backup_enabled ?? true;
+  }
 
   if (emailEnabled && email) {
     try {
       const id = await sendEmail(email, subject, message);
       await logNotification({
-        appointment_id: appointmentId, type, channel: "email",
+        appointment_id: appointmentId, business_id: businessId, type, channel: "email",
         status: "sent", recipient: email, message, provider_id: id ?? undefined,
       });
       return { sent: true, channel: "email" as const };
     } catch (e) {
       const err = e instanceof Error ? e.message : "Email failed";
       await logNotification({
-        appointment_id: appointmentId, type, channel: "email",
+        appointment_id: appointmentId, business_id: businessId, type, channel: "email",
         status: "failed", recipient: email, message, error: err,
       });
     }

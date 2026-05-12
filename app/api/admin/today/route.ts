@@ -1,12 +1,11 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import { getBusinessContext } from "@/lib/auth/business";
 import { NextResponse } from "next/server";
 import { format } from "date-fns";
 
 export async function GET() {
-  const auth = await createClient();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getBusinessContext();
+  if (!ctx?.businessId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const db    = createAdminClient();
   const today = format(new Date(), "yyyy-MM-dd");
@@ -19,6 +18,7 @@ export async function GET() {
       professionals (name),
       profiles (full_name)
     `)
+    .eq("business_id", ctx.businessId)
     .eq("appointment_date", today)
     .order("appointment_time", { ascending: true });
 

@@ -1,11 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import { getBusinessContext } from "@/lib/auth/business";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const auth = await createClient();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getBusinessContext();
+  if (!ctx?.businessId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from");
@@ -23,6 +22,7 @@ export async function GET(request: Request) {
       professionals (name),
       profiles (full_name)
     `)
+    .eq("business_id", ctx.businessId)
     .in("payment_status", ["paid", "refunded"])
     .order("created_at", { ascending: false });
 

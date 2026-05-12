@@ -6,23 +6,26 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   LayoutDashboard, CalendarRange, Users, CreditCard,
-  Settings, LogOut, Menu, X, CalendarDays, ExternalLink, Bell,
+  Settings, LogOut, Menu, X, CalendarDays, ExternalLink, Bell, Palette,
 } from "lucide-react";
 
 interface AdminSidebarProps {
   userEmail?: string;
+  businessSlug?: string;
+  isSuperAdmin?: boolean;
 }
 
 const NAV = [
-  { href: "/admin",               label: "Dashboard",    icon: LayoutDashboard },
-  { href: "/admin/agenda",        label: "Agenda",       icon: CalendarRange  },
-  { href: "/admin/clientes",      label: "Clientes",     icon: Users          },
-  { href: "/admin/pagos",         label: "Pagos",        icon: CreditCard     },
-  { href: "/admin/notificaciones",label: "Notificaciones",icon: Bell          },
-  { href: "/admin/configuracion", label: "Configuración",icon: Settings       },
+  { href: "/admin",               label: "Dashboard",      icon: LayoutDashboard },
+  { href: "/admin/agenda",        label: "Agenda",         icon: CalendarRange  },
+  { href: "/admin/clientes",      label: "Clientes",       icon: Users          },
+  { href: "/admin/pagos",         label: "Pagos",          icon: CreditCard     },
+  { href: "/admin/notificaciones",label: "Notificaciones", icon: Bell           },
+  { href: "/admin/branding",      label: "Branding",       icon: Palette        },
+  { href: "/admin/configuracion", label: "Configuración",  icon: Settings       },
 ];
 
-export default function AdminSidebar({ userEmail }: AdminSidebarProps) {
+export default function AdminSidebar({ userEmail, businessSlug, isSuperAdmin }: AdminSidebarProps) {
   const pathname    = usePathname();
   const router      = useRouter();
   const [open, setOpen] = useState(false);
@@ -71,14 +74,28 @@ export default function AdminSidebar({ userEmail }: AdminSidebarProps) {
 
         <div className="h-px bg-white/5 mx-1 my-3" />
 
-        <Link
-          href="/dashboard"
-          onClick={() => setOpen(false)}
-          className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm text-white/30 hover:text-white/60 hover:bg-white/5 transition-all"
-        >
-          <ExternalLink className="w-4 h-4 flex-shrink-0" />
-          Panel del cliente
-        </Link>
+        {businessSlug && (
+          <Link
+            href={`/negocio/${businessSlug}`}
+            target="_blank"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm text-white/30 hover:text-white/60 hover:bg-white/5 transition-all"
+          >
+            <ExternalLink className="w-4 h-4 flex-shrink-0" />
+            Ver mi página pública
+          </Link>
+        )}
+
+        {isSuperAdmin && (
+          <Link
+            href="/super-admin"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm text-white/30 hover:text-[#e4c69a] hover:bg-[#e4c69a]/5 transition-all"
+          >
+            <ExternalLink className="w-4 h-4 flex-shrink-0" />
+            Super Admin
+          </Link>
+        )}
       </nav>
 
       {/* Footer */}

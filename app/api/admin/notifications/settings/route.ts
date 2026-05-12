@@ -1,31 +1,38 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import { getBusinessContext } from "@/lib/auth/business";
 import { NextResponse } from "next/server";
 
-async function requireAuth() {
-  const auth = await createClient();
-  const { data: { user } } = await auth.auth.getUser();
-  return !!user;
-}
-
 export async function GET() {
-  if (!(await requireAuth()))
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getBusinessContext();
+  if (!ctx?.businessId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const db = createAdminClient();
-  const { data, error } = await db
+  const { data } = await db
     .from("notification_settings")
     .select("*")
-    .eq("id", 1)
-    .single();
+    .eq("business_id", ctx.businessId)
+    .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) {
+    // Seed default if missing
+    const { data: created } = await db
+      .from("notification_settings")
+      .insert({
+        business_id: ctx.businessId,
+        confirmation_enabled: true,
+        reminder_24h_enabled: true,
+        reminder_1h_enabled: true,
+        email_backup_enabled: true,
+      } as Record<string, unknown>)
+      .select().single();
+    return NextResponse.json(created);
+  }
   return NextResponse.json(data);
 }
 
 export async function PATCH(request: Request) {
-  if (!(await requireAuth()))
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getBusinessContext();
+  if (!ctx?.businessId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
   const allowed = ["confirmation_enabled", "reminder_24h_enabled", "reminder_1h_enabled", "email_backup_enabled"];
@@ -38,7 +45,7 @@ export async function PATCH(request: Request) {
   const { data, error } = await db
     .from("notification_settings")
     .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq("id", 1)
+    .eq("business_id", ctx.businessId)
     .select()
     .single();
 

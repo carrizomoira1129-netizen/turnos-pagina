@@ -39,6 +39,7 @@ interface Professional {
 }
 
 interface StripeCheckoutProps {
+  slug:       string;
   service:    Service;
   date:       Date;
   time:       string;
@@ -69,6 +70,7 @@ function formatPrice(n: number) {
 
 // ─── Inner form (needs stripe/elements context) ───────────────────────────────
 function CardForm({
+  slug,
   clientSecret,
   service,
   date,
@@ -79,6 +81,7 @@ function CardForm({
   guestPhone,
   onSuccess,
 }: {
+  slug:         string;
   clientSecret: string;
   professional: Professional;
   service:      Service;
@@ -133,6 +136,7 @@ function CardForm({
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
+          slug,
           paymentIntentId: paymentIntent.id,
           serviceId:       service.id,
           professionalId:  professional.id,
@@ -260,6 +264,7 @@ const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   : null;
 
 export default function StripeCheckout({
+  slug,
   service,
   date,
   time,
@@ -280,7 +285,7 @@ export default function StripeCheckout({
     fetchedRef.current = true;
 
     Promise.all([
-      fetch("/api/professionals").then((r) => r.json()),
+      fetch(`/api/public/business?slug=${slug}`).then((r) => r.json()),
       fetch("/api/public/create-payment-intent", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -292,9 +297,9 @@ export default function StripeCheckout({
         }),
       }).then((r) => r.json()),
     ])
-      .then(([profData, piData]) => {
+      .then(([bizData, piData]) => {
         if (piData.error) throw new Error(piData.error);
-        setProfessional(profData.professionals?.[0] ?? null);
+        setProfessional(bizData.professionals?.[0] ?? null);
         setClientSecret(piData.clientSecret);
       })
       .catch((err) => setInitError(err.message ?? "Error al inicializar el pago"))
@@ -446,6 +451,7 @@ export default function StripeCheckout({
 
           <Elements stripe={stripePromise}>
             <CardForm
+              slug={slug}
               clientSecret={clientSecret}
               service={service}
               date={date}

@@ -1,11 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import { getBusinessContext } from "@/lib/auth/business";
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  const auth = await createClient();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getBusinessContext();
+  if (!ctx?.businessId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const db = createAdminClient();
 
@@ -15,6 +14,7 @@ export async function GET() {
       id, appointment_date, guest_name, guest_email, guest_phone, client_id, status,
       profiles (full_name, phone)
     `)
+    .eq("business_id", ctx.businessId)
     .order("appointment_date", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
