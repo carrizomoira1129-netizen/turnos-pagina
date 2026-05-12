@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   LayoutDashboard, CalendarRange, Users, CreditCard,
-  Settings, LogOut, Menu, X, CalendarDays, ExternalLink,
+  Settings, LogOut, Menu, X, CalendarDays, ExternalLink, Bell,
 } from "lucide-react";
 
 interface AdminSidebarProps {
@@ -18,6 +18,7 @@ const NAV = [
   { href: "/admin/agenda",        label: "Agenda",       icon: CalendarRange  },
   { href: "/admin/clientes",      label: "Clientes",     icon: Users          },
   { href: "/admin/pagos",         label: "Pagos",        icon: CreditCard     },
+  { href: "/admin/notificaciones",label: "Notificaciones",icon: Bell          },
   { href: "/admin/configuracion", label: "Configuración",icon: Settings       },
 ];
 
